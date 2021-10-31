@@ -1,0 +1,123 @@
+-- Dataset ID: bigquery-public-data:san_francisco_bikeshare
+
+-- Average Trip Duration (in Minutes) per Month, Use of Joins
+
+SELECT CONCAT(
+EXTRACT(YEAR FROM bikeshare_trips.start_date), 
+"-",
+EXTRACT(MONTH FROM bikeshare_trips.start_date)) AS MonthTripStart, 
+AVG(duration_sec)/60 AS AvgTripDurationInMinutesPerMonth
+FROM bigquery-public-data.san_francisco_bikeshare.bikeshare_trips
+WHERE (EXTRACT(YEAR from bikeshare_trips.start_date)) in (2014, 2015, 2016, 2017)
+GROUP BY MonthTripStart
+ORDER BY MonthTripStart ASC
+
+-- Number of Unique Bike and Number of Trip by Region
+SELECT
+COUNT (trips.trip_id) AS NumberOfTrip,
+COUNT (DISTINCT trips.bike_number) AS NumberOfBike,
+regions.name AS RegionName
+
+FROM `bigquery-public-data.san_francisco_bikeshare.bikeshare_station_info` info
+INNER JOIN `bigquery-public-data.san_francisco_bikeshare.bikeshare_trips` trips
+ON info.station_id = trips.start_station_id
+
+INNER JOIN `bigquery-public-data.san_francisco_bikeshare.bikeshare_regions` regions
+ON regions.region_id = info.region_id
+
+WHERE (EXTRACT(YEAR from trips.start_date)) in (2014, 2015, 2016, 2017)
+
+GROUP BY regions.name
+
+
+-- Trip Data by Region across Three Tables, Use of Multiple Subqueries
+SELECT t1.*
+
+  FROM 
+  
+  (SELECT Trips.trip_id TripId,
+               Trips.duration_sec TripDuration,
+               Trips.start_date TripStartDate,
+               Trips.start_station_name TripStartStation,
+               Trips.member_gender Gender,
+               Regions.name RegionName
+          FROM `bigquery-public-data.san_francisco_bikeshare.bikeshare_trips` Trips
+         INNER JOIN `bigquery-public-data.san_francisco_bikeshare.bikeshare_station_info` StationInfo
+            ON Trips.start_station_id = StationInfo.station_id
+         INNER JOIN `bigquery-public-data.san_francisco_bikeshare.bikeshare_regions` Regions
+            ON StationInfo.region_id = Regions.region_id
+            
+         WHERE (EXTRACT(YEAR from Trips.start_date)) BETWEEN 2014 AND 2017
+           AND Trips.member_gender IS NOT NULL
+           ) 
+           t1
+
+ RIGHT JOIN (SELECT MAX(start_date) TripStartDate,
+                   Regions.name RegionName
+
+              FROM `bigquery-public-data.san_francisco_bikeshare.bikeshare_station_info` StationInfo
+             INNER JOIN `bigquery-public-data.san_francisco_bikeshare.bikeshare_trips` Trips
+                ON StationInfo.station_id = Trips.start_station_id
+    
+             INNER JOIN `bigquery-public-data.san_francisco_bikeshare.bikeshare_regions` Regions
+                ON Regions.region_id = StationInfo.region_id
+
+                 WHERE (EXTRACT(YEAR from Trips.start_date) BETWEEN 2014 AND 2017
+           AND Regions.name IS NOT NULL)
+
+             GROUP BY RegionName) 
+             t2
+    ON t1.RegionName = t2.RegionName AND t1.TripStartDate = t2.TripStartDate
+
+
+
+-- Trip Data by Region across Three Tables, Use of Window Function and Subquery
+SELECT 
+RegionName,
+RegionId,
+TripId,
+COUNT (TripId) OVER (PARTITION BY RegionName ORDER BY RegionName) AS RegionCumulativeTotalTrips,
+TripDuration,
+TripStart,
+TripStartStation,
+Gender
+
+FROM
+(
+SELECT
+Regions.name AS RegionName,
+Regions.region_id AS RegionId,
+Trips.trip_id AS TripId,
+Trips.duration_sec AS TripDuration,
+Trips.start_date AS TripStart,
+Trips.start_station_name AS TripStartStation,
+Trips.member_gender AS Gender
+
+FROM `bigquery-public-data.san_francisco_bikeshare.bikeshare_station_info` StationInfo
+INNER JOIN `bigquery-public-data.san_francisco_bikeshare.bikeshare_trips` Trips
+ON StationInfo.station_id = Trips.start_station_id
+    
+INNER JOIN `bigquery-public-data.san_francisco_bikeshare.bikeshare_regions` Regions
+ON Regions.region_id = StationInfo.region_id
+
+WHERE (EXTRACT(YEAR from Trips.start_date)) BETWEEN 2014 AND 2017
+AND Trips.member_gender IS NOT NULL
+
+ORDER BY RegionName ASC
+)
+
+-- Oldest and Youngest Member, Use of Subquery
+SELECT 
+Member.Gender,
+MAX (Member.Age) AS OldestMember,
+MIN (Member.Age) AS YoungestMember
+FROM
+(
+    SELECT 
+    (bikeshare_trips.member_gender) AS Gender,
+    (2021 - bikeshare_trips.member_birth_year) AS Age,
+    (EXTRACT(YEAR from bikeshare_trips.start_date)) in (2014, 2015, 2016, 2017) AS TripYear
+ FROM bigquery-public-data.san_francisco_bikeshare.bikeshare_trips
+) Member
+WHERE Gender IS NOT NULL
+GROUP BY 1
